@@ -3,22 +3,31 @@
 Gruppenprojekt im Modul Digitalisierung von Geschäftsprozessen (WS 26/27).
 Wir digitalisieren über das Semester den Retourenprozess der ShopEasy GmbH.
 
-Team: Selma, Halima
+Team 3: Selma & Halima
 
-## Ordner
+## Projektstruktur
 
-- `docs/` – BPMN-Modelle aus Sprint 1
-- `rest-api/` – Mock-REST-API für Retouren von Amazon/Zalando
-- `grpc-service/` – gRPC-Service für die Zustandsprüfung im Lager
-- `messaging/` – Status-Updates über RabbitMQ
+- `src/` – Mock-REST-API für Retouren von Amazon/Zalando (Spring Boot)
+  - `model/` – Datenmodell (`ReturnRequest`, `ReturnItem`, `Customer`)
+  - `repository/` – Testdaten und Zugriff auf die Retouren
+  - `service/` – Logik 
+  - `controller/` – REST-Endpunkte
+- `grpc-service/` – gRPC-Service für die Zustandsprüfung im Lager (folgt)
+- `messaging/` – Status-Updates über RabbitMQ (folgt)
 
 ## Sprint 2 – Integration
 
 In Sprint 2 bauen wir drei Komponenten, die später im Camunda-Workflow verwendet werden:
 
-1. **REST-API** (Spring Boot): Liefert Retourenmeldungen der Marktplätze, filterbar nach Status und Marktplatz. Außerdem kann man eine einzelne Retoure, die Bestelldaten und den Status ändern.
+1. **REST-API** (Spring Boot): Liefert Retourenmeldungen der Marktplätze, filterbar nach Status, Marktplatz und Grund. Später kann man außerdem eine einzelne Retoure und die Bestelldaten abfragen und den Status ändern.
 2. **gRPC-Service**: Bewertet den Zustand eines zurückgeschickten Artikels und empfiehlt ACCEPT, REJECT oder MANUAL_REVIEW. Grundlage ist die vorgegebene `article_condition_service.proto`.
 3. **Messaging** (RabbitMQ): Ein Producer verschickt Statusänderungen, ein Consumer liest sie und aktualisiert den Status über die REST-API.
+
+### Aktueller Stand
+
+- [x] Datenmodell und Testdaten (10 Retouren, Amazon und Zalando)
+- [x] `GET /returns` mit Filtern nach Status, Marktplatz und Grund
+
 
 ### Statusmodell
 
@@ -31,18 +40,27 @@ Abzweigungen:
 - LABEL_CREATED -> CANCELLED (Rücksendefrist abgelaufen)
 - INSPECTED -> REJECTED (Zustand nicht akzeptabel)
 
-Andere Übergänge sind nicht erlaubt und werden von der API mit `409 Conflict` abgelehnt.
+Andere Übergänge sollen nicht erlaubt sein und von der API mit `409 Conflict` abgelehnt werden.
 
 ### REST-Endpunkte
 
+Fertig:
 ```
-GET   /returns?status=NEW&marketplace=ZALANDO
+GET   /returns
+GET   /returns?status=NEW
+GET   /returns?marketplace=ZALANDO
+GET   /returns?reason=DEFECTIVE
+GET   /returns?status=NEW&marketplace=AMAZON&reason=DEFECTIVE
+```
+
+Geplant:
+```
 GET   /returns/{returnId}
 GET   /orders/{orderId}
 PATCH /returns/{returnId}/status
 ```
 
-### Messaging
+### Messaging (geplant)
 
 - Exchange `returns.status` (Typ topic)
 - Routing-Key: `return.status.<status>`, z. B. `return.status.received`
@@ -56,21 +74,15 @@ PATCH /returns/{returnId}/status
 
 ## Starten
 
-Voraussetzungen: Java 21, Maven (bzw. Maven Wrapper), Docker
+Voraussetzungen: Java 21, Docker (für RabbitMQ, folgt)
 
+REST-API (Port 8080), im Hauptordner:
 ```
-# 1. RabbitMQ
-cd messaging
-docker compose up -d
-
-# 2. REST-API (Port 8080)
-cd rest-api
-mvnw.cmd spring-boot:run
-
-# 3. gRPC-Server (Port 50051)
-# folgt
+.\mvnw.cmd spring-boot:run      # Windows
 ```
+Danach im Browser: `http://localhost:8080/returns`
 
 ## KI-Nutzung
 
-Wir haben Claude (Anthropic) für die Planung, das Statusmodell und erste Code-Grundgerüste genutzt. Den Code haben wir selbst geprüft und angepasst. Details ergänzen wir laufend.
+Wir haben Claude für die Planung, das Statusmodell und erste Code-Grundgerüste genutzt.
+Außerdem haben wir uns von Claude die Testdaten generieren lassen.
