@@ -81,6 +81,7 @@ REST-API (Port 8080), im Hauptordner:
 .\mvnw.cmd spring-boot:run      # Windows
 ```
 Danach im Browser: `http://localhost:8080/returns`
+Fürs Filter nach Marktplatz: http://localhost:8080/returns?marketplace=ZALANDO
 
 ## KI-Nutzung
 
