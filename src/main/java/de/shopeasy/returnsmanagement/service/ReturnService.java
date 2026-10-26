@@ -16,9 +16,25 @@ public class ReturnService {
         this.returnRepository = returnRepository;
     }
 
+    // Alle Retouren abrufen
     public List<ReturnRequest> getAllReturns() {
         return returnRepository.findAll();
     }
 
-    
+    // Retouren nach Status, Marktplatz und Grund filtern
+    public List<ReturnRequest> filterReturns(
+            String status,
+            String marketplace,
+            String reason) {
+
+        return returnRepository.findAll()
+                .stream()
+                .filter(ret -> status == null || status.isBlank()
+                        || ret.status().equalsIgnoreCase(status))
+                .filter(ret -> marketplace == null || marketplace.isBlank()
+                        || ret.marketplace().equalsIgnoreCase(marketplace))
+                .filter(ret -> reason == null || reason.isBlank()
+                        || ret.reason().equalsIgnoreCase(reason))
+                .toList();
+    }
 }
