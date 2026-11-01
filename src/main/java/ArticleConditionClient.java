@@ -5,17 +5,17 @@ public class ArticleConditionClient {
 
     public static void main(String[] args) {
 
-        // Verbindet den Client mit unserem gRPC-Server
+        // Verbindung zum gRPC-Server aufbauen
         ManagedChannel channel = ManagedChannelBuilder
                 .forAddress("localhost", 9090)
                 .usePlaintext()
                 .build();
 
         try {
-            // Erstellt einen Client für unseren gRPC-Service
+            // gRPC-Client erstellen
             var client = ArticleConditionServiceGrpc.newBlockingStub(channel);
 
-            // Simuliert einen neuwertigen retournierten Artikel
+            // Ersten Artikel für die Einzelprüfung erstellen
             var request = ArticleConditionServiceOuterClass.ConditionCheckRequest
                     .newBuilder()
                     .setReturnId("RET-2026-00457")
@@ -26,17 +26,54 @@ public class ArticleConditionClient {
                     .setOriginalPackaging(true)
                     .build();
 
-            // Schickt die Anfrage an den Server
+            // Einzelnen Artikel prüfen
             var response = client.checkCondition(request);
 
-            // Zeigt das Ergebnis im Terminal an
             System.out.println("Retouren-ID: " + response.getReturnId());
             System.out.println("Artikel: " + response.getSku());
             System.out.println("Entscheidung: " + response.getDecision());
             System.out.println("Begründung: " + response.getReason());
 
+            // Gespeichertes Prüfergebnis erneut abrufen
+            var savedRequest = ArticleConditionServiceOuterClass.GetCheckResultRequest
+                    .newBuilder()
+                    .setReturnId("RET-2026-00457")
+                    .setSku("SH-BLZ-042-M")
+                    .build();
+
+            var savedResponse = client.getCheckResult(savedRequest);
+
+            System.out.println("Gespeichertes Ergebnis: "
+                    + savedResponse.getDecision());
+
+            // Zweiten Artikel mit beschädigtem Zustand erstellen
+            var secondItem = ArticleConditionServiceOuterClass.ConditionCheckRequest
+                    .newBuilder()
+                    .setReturnId("RET-2026-00458")
+                    .setSku("SH-TSHIRT-001")
+                    .setObservedCondition(
+                            ArticleConditionServiceOuterClass.ObservedCondition.DAMAGED)
+                    .setTagsPresent(true)
+                    .build();
+
+            // Sammelanfrage mit zwei Artikeln erstellen
+            var batchRequest = ArticleConditionServiceOuterClass.ConditionCheckBatchRequest
+                    .newBuilder()
+                    .addItems(request)
+                    .addItems(secondItem)
+                    .build();
+
+            // Beide Artikel gleichzeitig prüfen
+            var batchResponse = client.checkConditionBatch(batchRequest);
+
+            // Ergebnisse der Sammelprüfung ausgeben
+            for (var result : batchResponse.getResultsList()) {
+                System.out.println("Batch: " + result.getSku()
+                        + " -> " + result.getDecision());
+            }
+
         } finally {
-            // Schließt die Verbindung
+            // Verbindung zum Server schließen
             channel.shutdown();
         }
     }
