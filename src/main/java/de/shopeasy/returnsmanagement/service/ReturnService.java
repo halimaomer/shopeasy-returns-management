@@ -1,130 +1,100 @@
 package de.shopeasy.returnsmanagement.service;
 
 import de.shopeasy.returnsmanagement.model.ReturnRequest;
+import de.shopeasy.returnsmanagement.model.ReturnStatus;
 import de.shopeasy.returnsmanagement.repository.ReturnRepository;
 
-import org.springframework.stereotype.Service;
 import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class ReturnService {
 
-    // Repository für den Zugriff auf die gespeicherten Retouren
     private final ReturnRepository returnRepository;
 
-    // Konstruktor für die automatische Einbindung des Repositorys
+    // Repository über den Konstruktor einbinden
     public ReturnService(ReturnRepository returnRepository) {
         this.returnRepository = returnRepository;
     }
 
-    // Alle vorhandenen Retouren abrufen
+    // Alle Retouren abrufen
     public List<ReturnRequest> getAllReturns() {
         return returnRepository.findAll();
     }
 
-    // Retouren optional nach Status, Marktplatz und Grund filtern
-    // Nicht angegebene Filter werden ignoriert
+    // Retouren nach Status, Marktplatz und Grund filtern
     public List<ReturnRequest> filterReturns(
             String status,
             String marketplace,
             String reason) {
 
-        return returnRepository.findAll()
-                .stream()
-                .filter(ret -> status == null
-                        || status.isBlank()
-                        || ret.status().equalsIgnoreCase(status))
-                .filter(ret -> marketplace == null
-                        || marketplace.isBlank()
-                        || ret.marketplace().equalsIgnoreCase(marketplace))
-                .filter(ret -> reason == null
-                        || reason.isBlank()
-                        || ret.reason().equalsIgnoreCase(reason))
+        return returnRepository.findAll().stream()
+                .filter(r -> status == null || status.isBlank()
+                        || r.status().equalsIgnoreCase(status))
+                .filter(r -> marketplace == null || marketplace.isBlank()
+                        || r.marketplace().equalsIgnoreCase(marketplace))
+                .filter(r -> reason == null || reason.isBlank()
+                        || r.reason().equalsIgnoreCase(reason))
                 .toList();
     }
 
-    // Einzelne Retoure anhand ihrer ID abrufen
-    // Falls die Retoure nicht existiert, wird HTTP 404 ausgelöst
+    // Einzelne Retoure anhand der ID suchen
     public ReturnRequest getReturnById(String returnId) {
-
         return returnRepository.findById(returnId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
-                        "Die Retoure mit der ID " + returnId
-                                + " existiert nicht."
-                ));
+                        "Retoure nicht gefunden: " + returnId));
     }
 
-    // Status einer bestehenden Retoure aktualisieren
-    public ReturnRequest updateReturnStatus(
-            String returnId,
-            String newStatus) {
-
-        // Prüfen, ob die Retoure existiert
-        ReturnRequest existingReturn = getReturnById(returnId);
+    // Status einer Retoure aktualisieren
+    public ReturnRequest updateReturnStatus(String returnId, String newStatus) {
 
         // Prüfen, ob ein neuer Status angegeben wurde
         if (newStatus == null || newStatus.isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Der neue Status darf nicht leer sein."
-            );
+                    "Ein neuer Status muss angegeben werden");
         }
 
-        // Status vereinheitlichen, beispielsweise approved zu APPROVED
-        String status = newStatus.trim().toUpperCase();
+        // Retoure laden
+        ReturnRequest existingReturn = getReturnById(returnId);
 
-        // Erlaubte Statuswerte definieren
-        List<String> allowedStatuses = List.of(
-                "NEW",
-                "APPROVED",
-                "LABEL_CREATED",
-                "RECEIVED",
-                "INSPECTED",
-                "REJECTED",
-                "REFUNDED",
-                "CANCELLED"
-        );
+        ReturnStatus currentStatus;
+        ReturnStatus targetStatus;
 
-        // Ungültige Statuswerte ablehnen
-        if (!allowedStatuses.contains(status)) {
+        try {
+            // Statuswerte in Enum-Werte umwandeln
+            currentStatus = ReturnStatus.valueOf(
+                    existingReturn.status().trim().toUpperCase(Locale.ROOT));
+
+            targetStatus = ReturnStatus.valueOf(
+                    newStatus.trim().toUpperCase(Locale.ROOT));
+
+        } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Ungültiger Status: " + status
-            );
+                    "Ungültiger Retourenstatus");
         }
 
-        // Endstatuswerte definieren
-        // Abgeschlossene Retouren dürfen nicht erneut geändert werden
-        List<String> finalStatuses = List.of(
-                "REFUNDED",
-                "REJECTED",
-                "CANCELLED"
-        );
-
-        // Prüfen, ob die Retoure bereits abgeschlossen ist
-        if (finalStatuses.contains(existingReturn.status())
-                && !existingReturn.status().equals(status)) {
-
+        // Prüfen, ob der gewünschte Statusübergang erlaubt ist
+        if (!currentStatus.canTransitionTo(targetStatus)) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Die Retoure hat bereits den Endstatus "
-                            + existingReturn.status()
-                            + " und kann nicht mehr geändert werden."
-            );
+                    "Statuswechsel von " + currentStatus
+                            + " zu " + targetStatus + " ist nicht erlaubt");
         }
 
-        // Retoure mit aktualisiertem Status erstellen
-        // Die übrigen Daten bleiben unverändert
+        // Neue Retoure mit aktualisiertem Status erstellen
         ReturnRequest updatedReturn = new ReturnRequest(
                 existingReturn.returnId(),
                 existingReturn.orderId(),
                 existingReturn.marketplace(),
-                status,
+                targetStatus.name(),
                 existingReturn.reason(),
                 existingReturn.reasonText(),
                 existingReturn.requestedAt(),
@@ -134,7 +104,9 @@ public class ReturnService {
                 existingReturn.returnLabelUrl()
         );
 
-        // Aktualisierte Retoure im Repository speichern
-        return returnRepository.save(updatedReturn);
+        // Aktualisierte Retoure speichern
+        returnRepository.save(updatedReturn);
+
+        return updatedReturn;
     }
 }
