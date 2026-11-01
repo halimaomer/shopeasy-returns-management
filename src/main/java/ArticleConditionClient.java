@@ -1,22 +1,22 @@
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.StatusRuntimeException;
 
 public class ArticleConditionClient {
 
     public static void main(String[] args) {
 
-        // Verbindung zum gRPC-Server aufbauen
+        // Verbindung zum gRPC-Server herstellen
         ManagedChannel channel = ManagedChannelBuilder
                 .forAddress("localhost", 9090)
                 .usePlaintext()
                 .build();
 
         try {
-            // gRPC-Client erstellen
             var client = ArticleConditionServiceGrpc.newBlockingStub(channel);
 
-            // Ersten Artikel für die Einzelprüfung erstellen
-            var request = ArticleConditionServiceOuterClass.ConditionCheckRequest
+            // Szenario: Neuwertiger Artikel wird angenommen
+            var newItem = ArticleConditionServiceOuterClass.ConditionCheckRequest
                     .newBuilder()
                     .setReturnId("RET-2026-00457")
                     .setSku("SH-BLZ-042-M")
@@ -26,54 +26,105 @@ public class ArticleConditionClient {
                     .setOriginalPackaging(true)
                     .build();
 
-            // Einzelnen Artikel prüfen
-            var response = client.checkCondition(request);
+            var accepted = client.checkCondition(newItem);
+            System.out.println("Neuwertig: " + accepted.getDecision());
 
-            System.out.println("Retouren-ID: " + response.getReturnId());
-            System.out.println("Artikel: " + response.getSku());
-            System.out.println("Entscheidung: " + response.getDecision());
-            System.out.println("Begründung: " + response.getReason());
+            // Szenario: Beschädigter Artikel wird abgelehnt
+            var damagedItem = ArticleConditionServiceOuterClass.ConditionCheckRequest
+                    .newBuilder()
+                    .setReturnId("RET-2026-00458")
+                    .setSku("SH-TSHIRT-001")
+                    .setObservedCondition(
+                            ArticleConditionServiceOuterClass.ObservedCondition.DAMAGED)
+                    .build();
 
-            // Gespeichertes Prüfergebnis erneut abrufen
+            var rejected = client.checkCondition(damagedItem);
+            System.out.println("Beschädigt: " + rejected.getDecision());
+
+            // Szenario: Leichte Gebrauchsspuren benötigen manuelle Prüfung
+            var wornItem = ArticleConditionServiceOuterClass.ConditionCheckRequest
+                    .newBuilder()
+                    .setReturnId("RET-2026-00459")
+                    .setSku("SH-JACKET-001")
+                    .setObservedCondition(
+                            ArticleConditionServiceOuterClass.ObservedCondition.MINOR_WEAR)
+                    .build();
+
+            var manual = client.checkCondition(wornItem);
+            System.out.println("Leichte Gebrauchsspuren: " + manual.getDecision());
+            System.out.println("Manuelle Prüfung nötig: "
+                    + manual.getRequiresManualReview());
+
+            // Gespeichertes Ergebnis erneut abrufen
             var savedRequest = ArticleConditionServiceOuterClass.GetCheckResultRequest
                     .newBuilder()
                     .setReturnId("RET-2026-00457")
                     .setSku("SH-BLZ-042-M")
                     .build();
 
-            var savedResponse = client.getCheckResult(savedRequest);
+            var saved = client.getCheckResult(savedRequest);
+            System.out.println("Gespeichertes Ergebnis: " + saved.getDecision());
 
-            System.out.println("Gespeichertes Ergebnis: "
-                    + savedResponse.getDecision());
-
-            // Zweiten Artikel mit beschädigtem Zustand erstellen
-            var secondItem = ArticleConditionServiceOuterClass.ConditionCheckRequest
-                    .newBuilder()
-                    .setReturnId("RET-2026-00458")
-                    .setSku("SH-TSHIRT-001")
-                    .setObservedCondition(
-                            ArticleConditionServiceOuterClass.ObservedCondition.DAMAGED)
-                    .setTagsPresent(true)
-                    .build();
-
-            // Sammelanfrage mit zwei Artikeln erstellen
+            // Mehrere gültige Artikel gleichzeitig prüfen
             var batchRequest = ArticleConditionServiceOuterClass.ConditionCheckBatchRequest
                     .newBuilder()
-                    .addItems(request)
-                    .addItems(secondItem)
+                    .addItems(newItem)
+                    .addItems(damagedItem)
+                    .addItems(wornItem)
                     .build();
 
-            // Beide Artikel gleichzeitig prüfen
             var batchResponse = client.checkConditionBatch(batchRequest);
 
-            // Ergebnisse der Sammelprüfung ausgeben
             for (var result : batchResponse.getResultsList()) {
                 System.out.println("Batch: " + result.getSku()
                         + " -> " + result.getDecision());
             }
 
+            // Fehlerfall: Retouren-ID fehlt
+            var invalidItem = ArticleConditionServiceOuterClass.ConditionCheckRequest
+                    .newBuilder()
+                    .setSku("SH-INVALID-001")
+                    .setObservedCondition(
+                            ArticleConditionServiceOuterClass.ObservedCondition.AS_NEW)
+                    .build();
+
+            try {
+                client.checkCondition(invalidItem);
+            } catch (StatusRuntimeException exception) {
+                System.out.println("Fehler Einzelprüfung: "
+                        + exception.getStatus().getCode());
+            }
+
+            // Fehlerfall: Sammelanfrage enthält einen ungültigen Artikel
+            var invalidBatch = ArticleConditionServiceOuterClass.ConditionCheckBatchRequest
+                    .newBuilder()
+                    .addItems(newItem)
+                    .addItems(invalidItem)
+                    .build();
+
+            try {
+                client.checkConditionBatch(invalidBatch);
+            } catch (StatusRuntimeException exception) {
+                System.out.println("Fehler Stapelprüfung: "
+                        + exception.getStatus().getCode());
+            }
+
+            // Fehlerfall: Prüfergebnis existiert nicht
+            var unknownResult = ArticleConditionServiceOuterClass.GetCheckResultRequest
+                    .newBuilder()
+                    .setReturnId("RET-UNKNOWN")
+                    .setSku("UNKNOWN-SKU")
+                    .build();
+
+            try {
+                client.getCheckResult(unknownResult);
+            } catch (StatusRuntimeException exception) {
+                System.out.println("Fehler Ergebnisabruf: "
+                        + exception.getStatus().getCode());
+            }
+
         } finally {
-            // Verbindung zum Server schließen
+            // Verbindung schließen
             channel.shutdown();
         }
     }
