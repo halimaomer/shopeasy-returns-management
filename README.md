@@ -1,180 +1,202 @@
 # ShopEasy Returns Management
 
-Gruppenprojekt im Modul **Digitalisierung von Geschäftsprozessen (WS 26/27)**.
+Gruppenprojekt im Modul Digitalisierung von Geschäftsprozessen (WS 26/27).
 Wir digitalisieren über das Semester den Retourenprozess der ShopEasy GmbH.
 
-**Team 3:** Selma & Halima
+Team 3: Selma & Halima
 
 ## Projektstruktur
 
 - `src/main/java/de/shopeasy/returnsmanagement/` – Spring-Boot-Anwendung
-  - `model/` – Datenmodelle (`ReturnRequest`, `ReturnItem`, `Customer`, `Order`) und `ReturnStatus`
-  - `repository/` – In-Memory-Testdaten und Datenzugriff
-  - `service/` – Retouren- und Bestelllogik, einschließlich Statusprüfung
+  - `model/` – Datenmodelle und `ReturnStatus`
+  - `repository/` – Testdaten (10 Retouren, 10 Bestellungen)
+  - `service/` – Logik, z. B. Prüfung der Statusübergänge
   - `controller/` – REST-Endpunkte
-  - `client/` – REST-API-Client
-  - `exception/` – Fehlerbehandlung für REST-Anfragen
-- `src/main/proto/article_condition_service.proto` – vorgegebene, unveränderte gRPC-Schnittstelle
-- `src/main/java/ArticleConditionServiceImpl.java` – Implementierung der gRPC-Zustandsprüfung
-- `src/main/java/ArticleConditionServer.java` – gRPC-Server
-- `src/main/java/ArticleConditionClient.java` – gRPC-Testclient
-- `src/test/` – automatisierte Tests, unter anderem für den REST-Client
-- RabbitMQ-Messaging – noch umzusetzen
+  - `client/` – REST-Client
+  - `exception/` – Fehlerbehandlung
+  - `messaging/` – RabbitMQ (Konfiguration, Producer, Consumer)
+- `src/main/proto/article_condition_service.proto` – vorgegebene gRPC-Schnittstelle (nicht verändert)
+- `src/main/java/ArticleCondition*.java` – gRPC-Service, Server und Client
+- `src/test/` – Tests für den REST-Client
+- `docker-compose.yml` – startet RabbitMQ
 
-Die Java-Klassen für gRPC werden beim Maven-Build aus der `.proto`-Datei generiert. Da die vorgegebene Datei kein Java-Package definiert, liegen die selbst geschriebenen gRPC-Klassen derzeit ebenfalls im Standard-Package.
+Die gRPC-Klassen liegen im Standard-Package, weil die vorgegebene `.proto`-Datei kein Java-Package festlegt.
 
-## Sprint 2 – Integration
+## Sprint 2
 
-In Sprint 2 entwickeln wir drei Komponenten, die später im Camunda-Workflow verwendet werden können:
+Wir haben drei Komponenten gebaut, die wir später im Camunda-Workflow nutzen wollen:
 
-1. **Mock-REST-API (Spring Boot):** Retouren von Amazon und Zalando abrufen, filtern und bearbeiten sowie Bestelldaten abfragen.
-2. **gRPC-Service:** Zustand zurückgesendeter Artikel bewerten und `ACCEPT`, `REJECT` oder `MANUAL_REVIEW` empfehlen. Grundlage ist die bereitgestellte `.proto`-Datei.
-3. **Messaging (RabbitMQ, noch offen):** Statusänderungen über Nachrichten versenden und von einem Consumer auf Retouren anwenden.
+1. **REST-API** für die Retouren von Amazon und Zalando
+2. **gRPC-Service**, der den Zustand eines zurückgeschickten Artikels bewertet
+3. **Messaging mit RabbitMQ** für Statusänderungen
 
-### Aktueller Stand
-
-- [x] Datenmodell und In-Memory-Testdaten mit zehn Retouren von Amazon und Zalando
-- [x] REST-Endpunkte für Retourenliste, Filter, Einzelretoure, Bestellung und Statusänderung
-- [x] REST-API-Client und erfolgreiche Client-Tests
-- [x] Statusübergänge über `ReturnStatus` geprüft
-- [x] gRPC-Service, Server und Client implementiert
-- [x] gRPC-Einzelprüfung, Stapelprüfung und Ergebnisabruf manuell erfolgreich getestet
-- [x] gRPC-Szenarien `ACCEPT`, `REJECT`, `MANUAL_REVIEW` sowie Fehlerfälle getestet
-- [ ] RabbitMQ-Broker, Producer und Consumer implementieren und testen
-- [ ] Dokumentation nach Abschluss der Messaging-Komponente ergänzen
+Stand:
+- [x] REST-API mit Client und Tests
+- [x] Statusübergänge werden geprüft
+- [x] gRPC-Service, Server und Client
+- [x] RabbitMQ mit Producer und Consumer
 
 ## Statusmodell
 
-Der reguläre Bearbeitungsweg lautet:
+Normaler Ablauf:
 
-```text
+```
 NEW -> APPROVED -> LABEL_CREATED -> RECEIVED -> INSPECTED -> ACCEPTED -> REFUNDED
 ```
 
-Zusätzlich sind **genau diese Abzweigungen** in `ReturnStatus.java` erlaubt:
+Erlaubte Übergänge (siehe `ReturnStatus.java`):
 
-| Aktueller Status | Erlaubte Folgestatus |
+| Von | Nach |
 | --- | --- |
-| `NEW` | `APPROVED`, `CANCELLED` |
-| `APPROVED` | `LABEL_CREATED`, `CANCELLED` |
-| `LABEL_CREATED` | `RECEIVED` |
-| `RECEIVED` | `INSPECTED` |
-| `INSPECTED` | `ACCEPTED`, `REJECTED`, `MANUAL_REVIEW` |
-| `MANUAL_REVIEW` | `ACCEPTED`, `REJECTED` |
-| `ACCEPTED` | `REFUNDED` |
-| `REJECTED` | keine (Endstatus) |
-| `REFUNDED` | keine (Endstatus) |
-| `CANCELLED` | keine (Endstatus) |
+| NEW | APPROVED, REJECTED, CANCELLED |
+| APPROVED | LABEL_CREATED, CANCELLED |
+| LABEL_CREATED | RECEIVED, CANCELLED |
+| RECEIVED | INSPECTED |
+| INSPECTED | ACCEPTED, REJECTED, MANUAL_REVIEW |
+| MANUAL_REVIEW | ACCEPTED, REJECTED |
+| ACCEPTED | REFUNDED |
 
-`MANUAL_REVIEW` steht für eine fachliche Prüfung eines Grenzfalls. `REJECTED`, `REFUNDED` und `CANCELLED` sind Endstatus.
+REJECTED, REFUNDED und CANCELLED sind Endstatus.
 
-Die REST-API prüft Statusänderungen anhand dieser Tabelle. Nicht erlaubte Übergänge werden mit **HTTP 409 Conflict** abgelehnt. Ein unbekannter Zielstatus führt zu **HTTP 400 Bad Request**, eine nicht vorhandene Retoure zu **HTTP 404 Not Found**.
+Warum diese Abzweigungen:
+- NEW -> REJECTED: Retoure ist nicht zulässig
+- NEW/APPROVED -> CANCELLED: Kunde zieht die Retoure zurück
+- LABEL_CREATED -> CANCELLED: Rücksendefrist ist abgelaufen
+- INSPECTED -> MANUAL_REVIEW: Grenzfall, jemand muss manuell entscheiden
 
-**Hinweis:** Der fachlich ebenfalls denkbare Übergang `LABEL_CREATED -> CANCELLED` bei abgelaufener Rücksendefrist ist aktuell **nicht implementiert**. Wenn wir ihn später aufnehmen, ändern wir die Übergangstabelle und diese Dokumentation gemeinsam. Auch `NEW -> REJECTED` ist derzeit nicht erlaubt.
+Bei LABEL_CREATED wird automatisch eine Label-URL erzeugt.
 
-### Beispiel für die Statusprüfung
+Nicht erlaubte Übergänge geben `409 Conflict`, ein unbekannter Status `400 Bad Request` und eine unbekannte Retoure `404 Not Found`.
 
-```text
-NEW -> REFUNDED   : 409 Conflict (nicht erlaubt)
-NEW -> APPROVED   : 200 OK (erlaubt)
+Die Daten liegen nur im Arbeitsspeicher. Nach einem Neustart sind wieder die Testdaten da.
+
+## REST-API
+
 ```
-
-Die Retouren werden für Sprint 2 nur im Arbeitsspeicher gehalten. Nach einem Neustart der Anwendung stehen wieder die initialen Testdaten zur Verfügung.
-
-## REST-Endpunkte
-
-Alle folgenden Endpunkte sind implementiert:
-
-```http
 GET   /returns
-GET   /returns?status=NEW
-GET   /returns?marketplace=ZALANDO
-GET   /returns?reason=DEFECTIVE
 GET   /returns?status=NEW&marketplace=AMAZON&reason=DEFECTIVE
 GET   /returns/{returnId}
 GET   /orders/{orderId}
 PATCH /returns/{returnId}/status
 ```
 
-Für `PATCH` wird der neue Status als einfacher Text im Request-Body übergeben (`Content-Type: text/plain`), beispielsweise `APPROVED`.
+Die Filter (status, marketplace, reason) kann man einzeln oder kombiniert nutzen.
+
+`GET /returns` gibt die Liste wie im Beispiel der Aufgabe im Feld `data` zurück:
+
+```json
+{ "data": [ { "returnId": "RET-2026-00457", "status": "NEW", ... } ] }
+```
+
+Für die Statusänderung schickt man JSON:
+
+```json
+{ "status": "APPROVED" }
+```
 
 ## gRPC-Service
 
-Der Service implementiert die drei RPC-Methoden der mitgelieferten Datei `article_condition_service.proto`:
+Umgesetzt sind alle drei Methoden aus der `.proto`-Datei: `CheckCondition`, `CheckConditionBatch` und `GetCheckResult`.
 
-- `CheckCondition`: einen Artikel bewerten
-- `CheckConditionBatch`: mehrere Artikel in einer Anfrage bewerten
-- `GetCheckResult`: ein bereits gespeichertes Ergebnis erneut abrufen
+Regeln für die Bewertung:
+- Neuwertig mit Etiketten und Originalverpackung -> ACCEPT
+- Neuwertig, aber Etiketten oder Verpackung fehlen -> MANUAL_REVIEW
+- Beschädigt, deutlich getragen oder Teile fehlen, mit Foto -> REJECT
+- Das Gleiche ohne Foto -> MANUAL_REVIEW, weil eine Ablehnung belegt sein soll
+- Leichte Gebrauchsspuren oder fehlende Etiketten -> MANUAL_REVIEW
 
-Die Bewertung wird durch einfache, nachvollziehbare Regeln simuliert:
+Fehlerfälle:
+- Return-ID oder SKU fehlt -> `INVALID_ARGUMENT`
+- Zustand nicht angegeben -> `INVALID_ARGUMENT`
+- `inspected_at` ungültig oder in der Zukunft -> `INVALID_ARGUMENT`
+- Batch leer oder mit einem ungültigen Artikel -> `INVALID_ARGUMENT` (dann wird nichts gespeichert)
+- Ergebnis nicht vorhanden -> `NOT_FOUND`
 
-| Beispielzustand | Entscheidung |
-| --- | --- |
-| `AS_NEW` mit vorhandenen Etiketten | `ACCEPT` |
-| `DAMAGED`, `VISIBLY_WORN` oder `MISSING_PARTS` | `REJECT` |
-| `MINOR_WEAR`, `MISSING_TAGS` oder `AS_NEW` ohne Etiketten | `MANUAL_REVIEW` |
+Der Client probiert alle diese Fälle aus.
 
-Die Antworten enthalten eine Entscheidung, eine Begründung, einen Confidence-Score und einen Zeitstempel. Ergebnisse werden vorübergehend im Arbeitsspeicher gespeichert.
+## Messaging mit RabbitMQ
 
-**Fehlerbehandlung:** Fehlende Retouren-ID oder SKU führen zu gRPC `INVALID_ARGUMENT`. Eine leere oder ungültige Stapelanfrage wird ebenfalls abgelehnt. Für nicht gespeicherte Prüfergebnisse liefert `GetCheckResult` `NOT_FOUND`.
+Andere Systeme (Marktplatz, Lager) schicken Statusänderungen als Nachricht an RabbitMQ. Ein Consumer in unserer App liest sie und ändert den Status der Retoure.
 
-Die drei RPC-Methoden und die genannten Entscheidungsszenarien sowie Fehlerfälle wurden über den gRPC-Client manuell erfolgreich ausgeführt.
+```
+Producer -> Exchange "returns.status" (Topic)
+               |-- return.status.#  -> Queue "status-updater" -> Consumer
+               |                              | bei Fehler
+               |                              v
+               |                        "returns.status.dlx" -> Queue "status-dead-letter"
+               |
+               |-- label_created / rejected / refunded -> Queue "customer-notification"
+```
 
-## Messaging mit RabbitMQ (geplant)
+- **returns.status**: Topic-Exchange, verteilt die Nachrichten nach Routing-Key (z. B. `return.status.approved`)
+- **status-updater**: bekommt alle Statusänderungen, hier hört der Consumer zu
+- **customer-notification**: bekommt nur Änderungen, die für den Kunden wichtig sind (z. B. für ein späteres E-Mail-System)
+- **status-dead-letter**: hier landen Nachrichten, die nicht verarbeitet werden konnten
 
-Für den Nachrichtenaustausch sind vorgesehen:
+Eine Nachricht sieht so aus:
 
-- Ein **Producer**, der eine Statusänderung als Nachricht veröffentlicht
-- Ein **RabbitMQ-Broker**, der Nachrichten über eine Queue vermittelt
-- Ein **Consumer**, der Nachrichten empfängt und den Retourenstatus über die bestehende Statuslogik aktualisiert
+```json
+{
+  "messageId": "3b2f6c1e-...",
+  "returnId": "RET-2026-00457",
+  "newStatus": "APPROVED",
+  "source": "MARKETPLACE",
+  "occurredAt": "2026-11-01T20:15:00Z"
+}
+```
 
-Die konkrete Exchange-, Routing-Key- und Queue-Konfiguration wird bei der Implementierung festgelegt. Der Consumer soll dieselben erlaubten Statusübergänge wie die REST-API beachten.
+Der Consumer benutzt den gleichen `ReturnService` wie die REST-API, deshalb gelten dieselben Statusregeln. Wenn ein Übergang nicht erlaubt ist oder die Retoure nicht existiert, wird die Nachricht abgelehnt und landet in der Dead-Letter-Queue. Wir stellen sie nicht nochmal zu, weil ein ungültiger Übergang beim zweiten Versuch auch nicht gültig wird.
+
+Der Producer kennt nur die Exchange und nicht die Queues. So sind Sender und Empfänger unabhängig voneinander.
 
 ## Warum welche Technik?
 
-- **REST** für die Anbindung externer Marktplätze und den einfachen Abruf von Retouren- und Bestelldaten.
-- **gRPC** für die synchrone interne Zustandsprüfung im Lager.
-- **Messaging** für asynchrone Statusupdates, bei denen Sender und Empfänger nicht unmittelbar miteinander kommunizieren müssen.
+- **REST** für die Marktplätze, weil das externe Partner sind und REST der Standard ist.
+- **gRPC** für die Zustandsprüfung, weil es ein interner Service ist und der Prozess direkt auf das Ergebnis wartet.
+- **Messaging** für Status-Updates, weil keine direkte Antwort nötig ist und mehrere Systeme die gleiche Info brauchen.
 
-## Starten und testen
+## Starten
 
-**Voraussetzungen:** Java 21 und Maven. Für RabbitMQ wird später ein laufender Broker benötigt, beispielsweise über Docker.
+Voraussetzungen: Java 21 und Docker Desktop.
 
-### REST-API starten
-
-Im Projektordner:
-
+**RabbitMQ starten:**
 ```powershell
-mvn spring-boot:run
+docker compose up -d
 ```
+Weboberfläche: http://localhost:15672 (Login: shopeasy / shopeasy)
 
-Die API ist anschließend unter `http://localhost:8080/returns` erreichbar.
-
-Beispiel zum Filtern:
-
-```text
-http://localhost:8080/returns?marketplace=ZALANDO
-```
-
-Beispiel für eine Statusänderung unter Windows (PowerShell):
-
+**REST-API starten** (Port 8080):
 ```powershell
-curl.exe -i -X PATCH "http://localhost:8080/returns/RET-2026-00457/status" -H "Content-Type: text/plain" --data-raw "APPROVED"
+.\mvnw.cmd spring-boot:run
 ```
+Dann im Browser z. B. http://localhost:8080/returns oder http://localhost:8080/returns?marketplace=ZALANDO
 
-### gRPC starten
-
-1. Projekt mit `mvn compile` kompilieren.
-2. `ArticleConditionServer.java` in VS Code über **Run Java** starten. Der Server läuft auf Port `9090`.
-3. Den Server geöffnet lassen und `ArticleConditionClient.java` über **Run Java** starten.
-
-Der Client demonstriert Annahme, Ablehnung, manuelle Prüfung, Stapelverarbeitung, Ergebnisabruf und Fehlerbehandlung.
-
-### Automatisierte Tests
-
+Status ändern in PowerShell:
 ```powershell
-mvn test
+Invoke-RestMethod -Method Patch -Uri "http://localhost:8080/returns/RET-2026-00457/status" -ContentType "application/json" -Body '{"status": "APPROVED"}'
 ```
+
+**Messaging testen** (App muss laufen, zweites Terminal):
+```powershell
+.\mvnw.cmd compile exec:java "-Dexec.mainClass=de.shopeasy.returnsmanagement.messaging.StatusUpdateProducerClient"
+```
+Danach sollte RET-2026-00466 auf LABEL_CREATED und RET-2026-00460 auf RECEIVED stehen. In `status-dead-letter` liegen 3 Nachrichten und in `customer-notification` 1.
+
+Eine einzelne Nachricht schicken:
+```powershell
+.\mvnw.cmd exec:java "-Dexec.mainClass=de.shopeasy.returnsmanagement.messaging.StatusUpdateProducerClient" "-Dexec.args=RET-2026-00462 MANUAL_REVIEW WAREHOUSE"
+```
+
+**gRPC starten:**
+1. `.\mvnw.cmd compile`
+2. `ArticleConditionServer.java` in VS Code mit Run Java starten (Port 9090)
+3. Danach `ArticleConditionClient.java` starten
+
+**Tests:**
+```powershell
+.\mvnw.cmd test
+```
+Vorher die laufende App beenden, weil die Tests auch Port 8080 brauchen.
 
 ## KI-Nutzung
 
