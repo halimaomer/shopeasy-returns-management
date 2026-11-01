@@ -1,3 +1,4 @@
+
 package de.shopeasy.returnsmanagement.service;
 
 import de.shopeasy.returnsmanagement.model.ReturnRequest;
@@ -89,7 +90,18 @@ public class ReturnService {
                             + " zu " + targetStatus + " ist nicht erlaubt");
         }
 
-        // Neue Retoure mit aktualisiertem Status erstellen
+        // Vorhandene Label-URL übernehmen
+        String labelUrl = existingReturn.returnLabelUrl();
+
+        // Beim Status LABEL_CREATED automatisch ein Versandlabel erzeugen
+        if (targetStatus == ReturnStatus.LABEL_CREATED
+                && (labelUrl == null || labelUrl.isBlank())) {
+
+            labelUrl = "https://labels.example.com/"
+                    + existingReturn.returnId() + ".pdf";
+        }
+
+        // Neue Retoure mit aktualisiertem Status und Label-URL erstellen
         ReturnRequest updatedReturn = new ReturnRequest(
                 existingReturn.returnId(),
                 existingReturn.orderId(),
@@ -101,7 +113,7 @@ public class ReturnService {
                 Instant.now(),
                 existingReturn.items(),
                 existingReturn.customer(),
-                existingReturn.returnLabelUrl()
+                labelUrl
         );
 
         // Aktualisierte Retoure speichern

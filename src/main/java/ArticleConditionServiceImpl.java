@@ -1,5 +1,7 @@
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -9,7 +11,7 @@ import io.grpc.stub.StreamObserver;
 public class ArticleConditionServiceImpl
         extends ArticleConditionServiceGrpc.ArticleConditionServiceImplBase {
 
-    // Speichert Prüfergebnisse im Arbeitsspeicher
+    // Speichert bereits durchgeführte Artikelprüfungen
     private final Map<String, ArticleConditionServiceOuterClass.ConditionCheckResponse>
             results = new ConcurrentHashMap<>();
 
@@ -22,6 +24,9 @@ public class ArticleConditionServiceImpl
         try {
             var response = evaluateCondition(request);
 
+            // Erst nach erfolgreicher Bewertung speichern
+            results.put(createKey(request.getReturnId(), request.getSku()), response);
+
             responseObserver.onNext(response);
             responseObserver.onCompleted();
 
@@ -32,7 +37,7 @@ public class ArticleConditionServiceImpl
         }
     }
 
-    // Prüft mehrere Artikel in einer Sammelanfrage
+    // Prüft mehrere Artikel, ohne bei einem Fehler Teilergebnisse zu speichern
     @Override
     public void checkConditionBatch(
             ArticleConditionServiceOuterClass.ConditionCheckBatchRequest request,
@@ -44,15 +49,29 @@ public class ArticleConditionServiceImpl
                         "Die Sammelanfrage muss mindestens einen Artikel enthalten");
             }
 
-            var batchResponse = ArticleConditionServiceOuterClass.ConditionCheckBatchResponse
-                    .newBuilder();
+            // Zunächst alle Ergebnisse nur lokal sammeln
+            List<ArticleConditionServiceOuterClass.ConditionCheckResponse>
+                    evaluatedResults = new ArrayList<>();
 
-            // Alle Artikel prüfen und Ergebnisse sammeln
             for (var item : request.getItemsList()) {
-                batchResponse.addResults(evaluateCondition(item));
+                evaluatedResults.add(evaluateCondition(item));
             }
 
-            responseObserver.onNext(batchResponse.build());
+            // Erst speichern, wenn wirklich alle Artikel gültig waren
+            synchronized (results) {
+                for (var response : evaluatedResults) {
+                    results.put(
+                            createKey(response.getReturnId(), response.getSku()),
+                            response);
+                }
+            }
+
+            var batchResponse = ArticleConditionServiceOuterClass.ConditionCheckBatchResponse
+                    .newBuilder()
+                    .addAllResults(evaluatedResults)
+                    .build();
+
+            responseObserver.onNext(batchResponse);
             responseObserver.onCompleted();
 
         } catch (IllegalArgumentException exception) {
@@ -75,7 +94,7 @@ public class ArticleConditionServiceImpl
             return;
         }
 
-        String key = request.getReturnId() + ":" + request.getSku();
+        String key = createKey(request.getReturnId(), request.getSku());
         var result = results.get(key);
 
         if (result == null) {
@@ -89,28 +108,40 @@ public class ArticleConditionServiceImpl
         responseObserver.onCompleted();
     }
 
-    // Gemeinsame Bewertungslogik für Einzel- und Sammelprüfung
+    // Erstellt den Schlüssel für ein gespeichertes Prüfergebnis
+    private String createKey(String returnId, String sku) {
+        return returnId + ":" + sku;
+    }
+
+    // Bewertet einen Artikel, ohne ihn direkt zu speichern
     private ArticleConditionServiceOuterClass.ConditionCheckResponse evaluateCondition(
             ArticleConditionServiceOuterClass.ConditionCheckRequest request) {
 
-        // Anfrage prüfen (Pflichtfelder, Zustand, Zeitstempel)
         validateRequest(request);
 
         var decision = ArticleConditionServiceOuterClass.Decision.MANUAL_REVIEW;
         double confidence = 0.60;
         String reason = "Zustand muss manuell geprüft werden";
 
-        // Bewertung anhand des erfassten Artikelzustands
+        // Prüfen, ob mindestens eine Foto-URL übermittelt wurde
+        boolean hasPhotos = request.getImageUrlsList().stream()
+                .anyMatch(url -> !url.isBlank());
+
         switch (request.getObservedCondition()) {
 
             case AS_NEW:
-                if (request.getTagsPresent()) {
-                    decision = ArticleConditionServiceOuterClass.Decision.ACCEPT;
-                    confidence = 0.98;
-                    reason = "Artikel ist neuwertig und Etiketten sind vorhanden";
-                } else {
+                if (!request.getTagsPresent()) {
                     confidence = 0.80;
                     reason = "Artikel ist neuwertig, aber Etiketten fehlen";
+
+                } else if (!request.getOriginalPackaging()) {
+                    confidence = 0.80;
+                    reason = "Artikel ist neuwertig, aber Originalverpackung fehlt";
+
+                } else {
+                    decision = ArticleConditionServiceOuterClass.Decision.ACCEPT;
+                    confidence = 0.98;
+                    reason = "Artikel ist neuwertig, Etiketten und Originalverpackung sind vorhanden";
                 }
                 break;
 
@@ -122,9 +153,14 @@ public class ArticleConditionServiceImpl
             case VISIBLY_WORN:
             case DAMAGED:
             case MISSING_PARTS:
-                decision = ArticleConditionServiceOuterClass.Decision.REJECT;
-                confidence = 0.95;
-                reason = "Artikelzustand erfüllt die Rücknahmebedingungen nicht";
+                if (hasPhotos) {
+                    decision = ArticleConditionServiceOuterClass.Decision.REJECT;
+                    confidence = 0.95;
+                    reason = "Artikelzustand erfüllt die Rücknahmebedingungen nicht, Fotodokumentation vorhanden";
+                } else {
+                    confidence = 0.70;
+                    reason = "Artikelzustand ist problematisch, aber Fotodokumentation fehlt";
+                }
                 break;
 
             case MISSING_TAGS:
@@ -137,8 +173,7 @@ public class ArticleConditionServiceImpl
                 break;
         }
 
-        // Antwort mit Entscheidung und Begründung erstellen
-        var response = ArticleConditionServiceOuterClass.ConditionCheckResponse
+        return ArticleConditionServiceOuterClass.ConditionCheckResponse
                 .newBuilder()
                 .setReturnId(request.getReturnId())
                 .setSku(request.getSku())
@@ -149,37 +184,29 @@ public class ArticleConditionServiceImpl
                         decision == ArticleConditionServiceOuterClass.Decision.MANUAL_REVIEW)
                 .setCheckedAt(Instant.now().toString())
                 .build();
-
-        // Ergebnis für späteren Abruf speichern
-        results.put(request.getReturnId() + ":" + request.getSku(), response);
-
-        return response;
     }
 
-    // Prüft, ob die Anfrage vollständig und gültig ist.
-    // Bei einem Fehler wird eine IllegalArgumentException geworfen,
-    // die als INVALID_ARGUMENT an den Client geht.
+    // Prüft Pflichtfelder, Artikelzustand und Zeitstempel
     private void validateRequest(
             ArticleConditionServiceOuterClass.ConditionCheckRequest request) {
 
-        // Pflichtfelder Return-ID und SKU
         if (request.getReturnId().isBlank() || request.getSku().isBlank()) {
             throw new IllegalArgumentException(
                     "Return-ID und SKU dürfen nicht leer sein");
         }
 
-        // Artikelzustand muss vom Lager erfasst worden sein
         var condition = request.getObservedCondition();
+
         if (condition == ArticleConditionServiceOuterClass.ObservedCondition.OBSERVED_CONDITION_UNSPECIFIED
                 || condition == ArticleConditionServiceOuterClass.ObservedCondition.UNRECOGNIZED) {
             throw new IllegalArgumentException(
                     "Artikelzustand wurde nicht angegeben (" + request.getSku() + ")");
         }
 
-        // Prüfzeitpunkt ist optional, muss aber ein gültiger ISO-8601-Zeitstempel
-        // sein und darf nicht in der Zukunft liegen
+        // Der Prüfzeitpunkt ist optional, muss aber ISO-8601-konform sein
         if (!request.getInspectedAt().isBlank()) {
             Instant inspectedAt;
+
             try {
                 inspectedAt = Instant.parse(request.getInspectedAt());
             } catch (DateTimeParseException exception) {
