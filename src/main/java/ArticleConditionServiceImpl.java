@@ -1,3 +1,4 @@
+
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -57,13 +58,11 @@ public class ArticleConditionServiceImpl
                 evaluatedResults.add(evaluateCondition(item));
             }
 
-            // Erst speichern, wenn wirklich alle Artikel gültig waren
-            synchronized (results) {
-                for (var response : evaluatedResults) {
-                    results.put(
-                            createKey(response.getReturnId(), response.getSku()),
-                            response);
-                }
+            // Erst speichern, wenn alle Artikel erfolgreich geprüft wurden
+            for (var response : evaluatedResults) {
+                results.put(
+                        createKey(response.getReturnId(), response.getSku()),
+                        response);
             }
 
             var batchResponse = ArticleConditionServiceOuterClass.ConditionCheckBatchResponse
