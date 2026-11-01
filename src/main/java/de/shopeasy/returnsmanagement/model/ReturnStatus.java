@@ -16,12 +16,12 @@ public enum ReturnStatus {
     REFUNDED,
     CANCELLED;
 
-    // Definiert, welche Statusänderungen erlaubt sind
+    // Legt fest, welche Statuswechsel erlaubt sind
     private static final Map<ReturnStatus, Set<ReturnStatus>> ALLOWED_TRANSITIONS =
             Map.of(
-                    NEW, Set.of(APPROVED, CANCELLED),
+                    NEW, Set.of(APPROVED, REJECTED, CANCELLED),
                     APPROVED, Set.of(LABEL_CREATED, CANCELLED),
-                    LABEL_CREATED, Set.of(RECEIVED),
+                    LABEL_CREATED, Set.of(RECEIVED, CANCELLED),
                     RECEIVED, Set.of(INSPECTED),
                     INSPECTED, Set.of(ACCEPTED, REJECTED, MANUAL_REVIEW),
                     MANUAL_REVIEW, Set.of(ACCEPTED, REJECTED),
@@ -31,7 +31,7 @@ public enum ReturnStatus {
                     CANCELLED, Set.of()
             );
 
-    // Prüft, ob ein Wechsel zum nächsten Status erlaubt ist
+    // Überprüft, ob der nächste Status erlaubt ist
     public boolean canTransitionTo(ReturnStatus nextStatus) {
         return ALLOWED_TRANSITIONS.get(this).contains(nextStatus);
     }
