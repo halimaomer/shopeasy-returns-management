@@ -23,7 +23,7 @@
     <!-- Java-, gRPC- und Protobuf-Versionen -->
     <properties>
         <java.version>21</java.version>
-        <grpc.version>1.75.0</grpc.version>
+        <grpc.version>1.84.1</grpc.version>
         <protobuf.version>4.32.1</protobuf.version>
     </properties>
 
