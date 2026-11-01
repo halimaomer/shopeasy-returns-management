@@ -200,4 +200,11 @@ Vorher die laufende App beenden, weil die Tests auch Port 8080 brauchen.
 
 ## KI-Nutzung
 
-Wir haben Claude für die Planung, das Statusmodell und erste Code-Grundgerüste genutzt. Außerdem haben wir uns von Claude die Testdaten generieren lassen.
+Wir haben Claude für die Planung, das Statusmodell und erste Code-Grundgerüste genutzt. Außerdem haben wir uns von Claude die Testdaten generieren lassen.In Sprint 2 haben wir Claude zusätzlich so eingesetzt:
+
+Zu Beginn des Sprints hat Claude unseren bisherigen Stand im Repository durchgesehen und aufgezeigt, was noch fehlt oder nicht zur Aufgabenstellung passt, zum Beispiel dass die Statusübergänge nicht geprüft wurden, die Label-URLs in den Testdaten nicht zum Statusmodell passten und die SKUs im gRPC-Client nicht zu den REST-Daten. Auf dieser Grundlage haben wir die offenen Punkte gemeinsam entschieden und untereinander aufgeteilt.
+
+Im OrderRepository haben wir die ersten zwei Bestellungen selbst angelegt. Die acht weiteren Bestellungen, passend zu den Retouren, hat Claude erstellt.
+Im gRPC-Service hat Claude die Methode validateRequest geschrieben, die prüft, ob ein Artikelzustand angegeben wurde und ob inspected_at ein gültiger Zeitstempel ist, der nicht in der Zukunft liegt.
+Die README haben wir am Ende von Claude an den aktuellen Stand anpassen lassen und dann selbst durchgelesen und mit dem Code abgeglichen.
+Alle mit KI erstellten Teile haben wir gelesen, ausgeführt und getestet, bevor wir sie übernommen haben.
