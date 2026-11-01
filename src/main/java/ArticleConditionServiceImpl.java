@@ -1,4 +1,5 @@
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -92,11 +93,8 @@ public class ArticleConditionServiceImpl
     private ArticleConditionServiceOuterClass.ConditionCheckResponse evaluateCondition(
             ArticleConditionServiceOuterClass.ConditionCheckRequest request) {
 
-        // Pflichtfelder überprüfen
-        if (request.getReturnId().isBlank() || request.getSku().isBlank()) {
-            throw new IllegalArgumentException(
-                    "Return-ID und SKU dürfen nicht leer sein");
-        }
+        // Anfrage prüfen (Pflichtfelder, Zustand, Zeitstempel)
+        validateRequest(request);
 
         var decision = ArticleConditionServiceOuterClass.Decision.MANUAL_REVIEW;
         double confidence = 0.60;
@@ -156,5 +154,45 @@ public class ArticleConditionServiceImpl
         results.put(request.getReturnId() + ":" + request.getSku(), response);
 
         return response;
+    }
+
+    // Prüft, ob die Anfrage vollständig und gültig ist.
+    // Bei einem Fehler wird eine IllegalArgumentException geworfen,
+    // die als INVALID_ARGUMENT an den Client geht.
+    private void validateRequest(
+            ArticleConditionServiceOuterClass.ConditionCheckRequest request) {
+
+        // Pflichtfelder Return-ID und SKU
+        if (request.getReturnId().isBlank() || request.getSku().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Return-ID und SKU dürfen nicht leer sein");
+        }
+
+        // Artikelzustand muss vom Lager erfasst worden sein
+        var condition = request.getObservedCondition();
+        if (condition == ArticleConditionServiceOuterClass.ObservedCondition.OBSERVED_CONDITION_UNSPECIFIED
+                || condition == ArticleConditionServiceOuterClass.ObservedCondition.UNRECOGNIZED) {
+            throw new IllegalArgumentException(
+                    "Artikelzustand wurde nicht angegeben (" + request.getSku() + ")");
+        }
+
+        // Prüfzeitpunkt ist optional, muss aber ein gültiger ISO-8601-Zeitstempel
+        // sein und darf nicht in der Zukunft liegen
+        if (!request.getInspectedAt().isBlank()) {
+            Instant inspectedAt;
+            try {
+                inspectedAt = Instant.parse(request.getInspectedAt());
+            } catch (DateTimeParseException exception) {
+                throw new IllegalArgumentException(
+                        "inspected_at ist kein gültiger ISO-8601-Zeitstempel: "
+                                + request.getInspectedAt());
+            }
+
+            if (inspectedAt.isAfter(Instant.now())) {
+                throw new IllegalArgumentException(
+                        "inspected_at darf nicht in der Zukunft liegen: "
+                                + request.getInspectedAt());
+            }
+        }
     }
 }
