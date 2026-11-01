@@ -1,0 +1,13 @@
+# RabbitMQ als Message Broker für die Status-Updates der Retouren
+services:
+  rabbitmq:
+    # Offizielles RabbitMQ-Image inklusive Weboberfläche (Management-Plugin)
+    image: rabbitmq:4-management
+    container_name: shopeasy-rabbitmq
+    ports:
+      - "5672:5672"     # AMQP-Port: hierüber verbinden sich Producer und Consumer
+      - "15672:15672"   # Weboberfläche zum Anschauen von Exchanges, Queues und Nachrichten
+    environment:
+      RABBITMQ_DEFAULT_USER: shopeasy
+      RABBITMQ_DEFAULT_PASS: shopeasy
+      
