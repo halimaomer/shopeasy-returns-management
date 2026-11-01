@@ -5,6 +5,9 @@ import de.shopeasy.returnsmanagement.model.ReturnRequest;
 import de.shopeasy.returnsmanagement.service.ReturnService;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,4 +36,20 @@ public class ReturnController {
                 reason
         );
     }
+    
+    @GetMapping("/{returnId}")
+    public ReturnRequest getReturnById(
+          @PathVariable String returnId) {
+
+        return returnService.getReturnById(returnId);
+    }
+
+    @PatchMapping("/{returnId}/status")
+    public ReturnRequest updateReturnStatus(
+            @PathVariable String returnId,
+            @RequestBody String newStatus) {
+
+        return returnService.updateReturnStatus(returnId, newStatus);
+    }
+
 }
